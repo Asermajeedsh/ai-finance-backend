@@ -1,8 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import requests
-import openai
 import os
+from openai import OpenAI
 
 app = FastAPI()
 
@@ -13,7 +13,7 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 ALPHA_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
 def fetch_stock(symbol):
@@ -54,8 +54,8 @@ def fetch_crypto(symbol):
 
 def ai_insight(asset, change):
     prompt = f"The price of {asset} changed {change}. Give a short investment insight in simple language."
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=80
     )
@@ -67,12 +67,18 @@ def home():
 
 @app.get("/stock/{symbol}")
 def stock(symbol: str):
-    price, change = fetch_stock(symbol)
-    insight = ai_insight(symbol, change)
-    return {"symbol": symbol, "price": price, "change": change, "insight": insight}
+    try:
+        price, change = fetch_stock(symbol)
+        insight = ai_insight(symbol, change)
+        return {"symbol": symbol, "price": price, "change": change, "insight": insight}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/crypto/{symbol}")
 def crypto(symbol: str):
-    price = fetch_crypto(symbol)
-    insight = ai_insight(symbol, "today")
-    return {"symbol": symbol, "price": price, "insight": insight}
+    try:
+        price = fetch_crypto(symbol)
+        insight = ai_insight(symbol, "today")
+        return {"symbol": symbol, "price": price, "insight": insight}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
