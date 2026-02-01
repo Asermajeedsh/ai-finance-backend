@@ -17,6 +17,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 ALPHA_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
 def fetch_stock(symbol):
+    # Try Alpha Vantage first
     url = "https://www.alphavantage.co/query"
     params = {
         "function": "GLOBAL_QUOTE",
@@ -25,13 +26,26 @@ def fetch_stock(symbol):
     }
     r = requests.get(url).json()
 
-    if "Global Quote" not in r or not r["Global Quote"]:
-        raise HTTPException(status_code=400, detail="Invalid stock symbol or API limit reached")
+    quote = r.get("Global Quote")
+    if quote and "05. price" in quote:
+        price = quote.get("05. price")
+        change = quote.get("10. change percent", "0%")
+        return float(price), change
 
-    quote = r["Global Quote"]
-    price = quote.get("05. price", "0")
-    change = quote.get("10. change percent", "0%")
-    return float(price), change
+    # Fallback: Yahoo Finance unofficial API
+    yahoo_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
+    y = requests.get(yahoo_url).json()
+    result = y.get("quoteResponse", {}).get("result", [])
+
+    if not result:
+        raise HTTPException(status_code=400, detail="Invalid stock symbol or data unavailable")
+
+    stock = result[0]
+    price = stock.get("regularMarketPrice", 0)
+    change = stock.get("regularMarketChangePercent", 0)
+    change_str = f"{change:.2f}%" if isinstance(change, (int, float)) else "0%"
+
+    return float(price), change_str
 
 def fetch_crypto(symbol):
     url = f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd"
@@ -53,18 +67,12 @@ def home():
 
 @app.get("/stock/{symbol}")
 def stock(symbol: str):
-    try:
-        price, change = fetch_stock(symbol)
-        insight = ai_insight(symbol, change)
-        return {"symbol": symbol, "price": price, "change": change, "insight": insight}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    price, change = fetch_stock(symbol)
+    insight = ai_insight(symbol, change)
+    return {"symbol": symbol, "price": price, "change": change, "insight": insight}
 
 @app.get("/crypto/{symbol}")
 def crypto(symbol: str):
-    try:
-        price = fetch_crypto(symbol)
-        insight = ai_insight(symbol, "today")
-        return {"symbol": symbol, "price": price, "insight": insight}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    price = fetch_crypto(symbol)
+    insight = ai_insight(symbol, "today")
+    return {"symbol": symbol, "price": price, "insight": insight}
