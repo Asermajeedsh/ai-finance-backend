@@ -34,7 +34,9 @@ def stock(symbol: str):
 
 @app.get("/crypto/{symbol}")
 def crypto(symbol: str):
-    data = CRYPTOS.get(symbol.lower())
+    # Case-insensitive lookup
+    key = symbol.lower()
+    data = CRYPTOS.get(key)
     if not data:
         return {"symbol": symbol, "price": 0, "insight": "No data available."}
     return {"symbol": symbol, **data}
