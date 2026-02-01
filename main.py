@@ -16,41 +16,66 @@ app.add_middleware(
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 ALPHA_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
+def safe_json(url, params=None):
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
 def fetch_stock(symbol):
-    # Try Alpha Vantage first
-    url = "https://www.alphavantage.co/query"
-    params = {
+    # Try Alpha Vantage
+    alpha_data = safe_json("https://www.alphavantage.co/query", {
         "function": "GLOBAL_QUOTE",
         "symbol": symbol,
         "apikey": ALPHA_KEY
-    }
-    r = requests.get(url).json()
+    })
 
-    quote = r.get("Global Quote")
-    if quote and "05. price" in quote:
-        price = quote.get("05. price")
-        change = quote.get("10. change percent", "0%")
-        return float(price), change
+    if alpha_data:
+        quote = alpha_data.get("Global Quote")
+        if quote and "05. price" in quote:
+            try:
+                price = float(quote.get("05. price"))
+                change = quote.get("10. change percent", "0%")
+                return price, change
+            except:
+                pass
 
-    # Fallback: Yahoo Finance unofficial API
-    yahoo_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-    y = requests.get(yahoo_url).json()
-    result = y.get("quoteResponse", {}).get("result", [])
+    # Fallback: Yahoo Finance
+    yahoo_data = safe_json("https://query1.finance.yahoo.com/v7/finance/quote", {
+        "symbols": symbol
+    })
 
-    if not result:
-        raise HTTPException(status_code=400, detail="Invalid stock symbol or data unavailable")
+    if yahoo_data:
+        results = yahoo_data.get("quoteResponse", {}).get("result", [])
+        if results:
+            stock = results[0]
+            price = stock.get("regularMarketPrice", 0)
+            change = stock.get("regularMarketChangePercent", 0)
+            try:
+                price = float(price)
+                change_str = f"{float(change):.2f}%"
+            except:
+                change_str = "0%"
+            return price, change_str
 
-    stock = result[0]
-    price = stock.get("regularMarketPrice", 0)
-    change = stock.get("regularMarketChangePercent", 0)
-    change_str = f"{change:.2f}%" if isinstance(change, (int, float)) else "0%"
-
-    return float(price), change_str
+    # Final fallback
+    return 0.0, "0%"
 
 def fetch_crypto(symbol):
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd"
-    r = requests.get(url).json()
-    return r.get(symbol, {}).get("usd", 0)
+    data = safe_json("https://api.coingecko.com/api/v3/simple/price", {
+        "ids": symbol,
+        "vs_currencies": "usd"
+    })
+
+    if data and symbol in data and "usd" in data[symbol]:
+        try:
+            return float(data[symbol]["usd"])
+        except:
+            pass
+
+    return 0.0
 
 def ai_insight(asset, change):
     prompt = f"The price of {asset} changed {change}. Give a short investment insight in simple language."
@@ -67,18 +92,12 @@ def home():
 
 @app.get("/stock/{symbol}")
 def stock(symbol: str):
-    try:
-        price, change = fetch_stock(symbol)
-        insight = ai_insight(symbol, change)
-        return {"symbol": symbol, "price": price, "change": change, "insight": insight}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    price, change = fetch_stock(symbol)
+    insight = ai_insight(symbol, change)
+    return {"symbol": symbol, "price": price, "change": change, "insight": insight}
 
 @app.get("/crypto/{symbol}")
 def crypto(symbol: str):
-    try:
-        price = fetch_crypto(symbol)
-        insight = ai_insight(symbol, "today")
-        return {"symbol": symbol, "price": price, "insight": insight}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    price = fetch_crypto(symbol)
+    insight = ai_insight(symbol, "today")
+    return {"symbol": symbol, "price": price, "insight": insight}
