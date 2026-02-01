@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 import openai
@@ -17,9 +17,18 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 ALPHA_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
 def fetch_stock(symbol):
-    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={ALPHA_KEY}"
+    url = "https://www.alphavantage.co/query"
+    params = {
+        "function": "GLOBAL_QUOTE",
+        "symbol": symbol,
+        "apikey": ALPHA_KEY
+    }
     r = requests.get(url).json()
-    quote = r.get("Global Quote", {})
+
+    if "Global Quote" not in r or not r["Global Quote"]:
+        raise HTTPException(status_code=400, detail="Invalid stock symbol or API limit reached")
+
+    quote = r["Global Quote"]
     price = quote.get("05. price", "0")
     change = quote.get("10. change percent", "0%")
     return float(price), change
@@ -44,12 +53,18 @@ def home():
 
 @app.get("/stock/{symbol}")
 def stock(symbol: str):
-    price, change = fetch_stock(symbol)
-    insight = ai_insight(symbol, change)
-    return {"symbol": symbol, "price": price, "change": change, "insight": insight}
+    try:
+        price, change = fetch_stock(symbol)
+        insight = ai_insight(symbol, change)
+        return {"symbol": symbol, "price": price, "change": change, "insight": insight}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/crypto/{symbol}")
 def crypto(symbol: str):
-    price = fetch_crypto(symbol)
-    insight = ai_insight(symbol, "today")
-    return {"symbol": symbol, "price": price, "insight": insight}
+    try:
+        price = fetch_crypto(symbol)
+        insight = ai_insight(symbol, "today")
+        return {"symbol": symbol, "price": price, "insight": insight}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
