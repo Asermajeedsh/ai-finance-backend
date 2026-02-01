@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 import openai
-import stripe
+import os
 
 app = FastAPI()
 
@@ -13,30 +13,34 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-openai.api_key = ""
-
-stripe.api_key = ""
+openai.api_key = os.getenv("OPENAI_API_KEY")
+ALPHA_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
 def fetch_stock(symbol):
-    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey="
+    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={ALPHA_KEY}"
     r = requests.get(url).json()
-    price = r["Global Quote"]["05. price"]
-    change = r["Global Quote"]["10. change percent"]
+    quote = r.get("Global Quote", {})
+    price = quote.get("05. price", "0")
+    change = quote.get("10. change percent", "0%")
     return float(price), change
 
 def fetch_crypto(symbol):
     url = f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd"
     r = requests.get(url).json()
-    return r[symbol]["usd"]
+    return r.get(symbol, {}).get("usd", 0)
 
 def ai_insight(asset, change):
-    prompt = f"The price of {asset} changed {change}. Give a short investment insight."
+    prompt = f"The price of {asset} changed {change}. Give a short investment insight in simple language."
     response = openai.ChatCompletion.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=60
+        max_tokens=80
     )
     return response.choices[0].message.content
+
+@app.get("/")
+def home():
+    return {"message": "Velaris AI backend is live"}
 
 @app.get("/stock/{symbol}")
 def stock(symbol: str):
@@ -49,15 +53,3 @@ def crypto(symbol: str):
     price = fetch_crypto(symbol)
     insight = ai_insight(symbol, "today")
     return {"symbol": symbol, "price": price, "insight": insight}
-
-@app.post("/checkout")
-def checkout(email: str):
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        mode="subscription",
-        line_items=[{"price": "PRICE_ID_HERE", "quantity": 1}],
-        success_url="https://yourfrontend.com/success",
-        cancel_url="https://yourfrontend.com/cancel",
-        customer_email=email
-    )
-    return {"url": session.url}
