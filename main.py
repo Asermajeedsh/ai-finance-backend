@@ -1,8 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from openai import OpenAI
-import os
-import random
 
 app = FastAPI()
 
@@ -13,30 +10,31 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Demo stock & crypto data
+STOCKS = {
+    "TSLA": {"price": 185.32, "change": "1.23%", "insight": "Tesla stock is slightly up today; investors remain optimistic."},
+    "AAPL": {"price": 145.67, "change": "-0.85%", "insight": "Apple dipped slightly; market sentiment is cautious."}
+}
+
+CRYPTOS = {
+    "bitcoin": {"price": 43000, "insight": "Bitcoin remains volatile today; traders are watching closely."},
+    "ethereum": {"price": 3200, "insight": "Ethereum shows steady growth; investor confidence is moderate."}
+}
 
 @app.get("/")
 def home():
-    return {"message": "Velaris backend is live and stable"}
+    return {"message": "Velaris AI backend is live"}
 
 @app.get("/stock/{symbol}")
 def stock(symbol: str):
-    price = round(random.uniform(50, 500), 2)
-    change = f"{round(random.uniform(-5, 5), 2)}%"
-    insight = ai_insight(symbol, change)
-    return {"symbol": symbol, "price": price, "change": change, "insight": insight}
+    data = STOCKS.get(symbol.upper())
+    if not data:
+        return {"symbol": symbol, "price": 0, "change": "0%", "insight": "No data available."}
+    return {"symbol": symbol, **data}
 
 @app.get("/crypto/{symbol}")
 def crypto(symbol: str):
-    price = round(random.uniform(1000, 50000), 2)
-    insight = ai_insight(symbol, "today")
-    return {"symbol": symbol, "price": price, "insight": insight}
-
-def ai_insight(asset, change):
-    prompt = f"The price of {asset} changed {change}. Give a short investment insight in simple language."
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=80
-    )
-    return response.choices[0].message.content
+    data = CRYPTOS.get(symbol.lower())
+    if not data:
+        return {"symbol": symbol, "price": 0, "insight": "No data available."}
+    return {"symbol": symbol, **data}
